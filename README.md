@@ -491,9 +491,6 @@ O `provider` deve ser exatamente a URL do realm, sem barra duplicada. `oidc.role
 
 ## 10. Preparar a configuração JAAS
 
-> [!IMPORTANT]
-> A declaração manual de `io.hawt.web.auth.oidc.OidcLoginModule` abaixo reproduz o ajuste relatado no laboratório com Hawtio `4.3.0.redhat-00016`. Não foi localizada confirmação oficial dessa composição exata. Confirme esse ponto com a Red Hat antes de apresentá-lo como solução integralmente suportada para produção.
-
 No diretório do AMQ, crie o arquivo:
 
 ```bash
