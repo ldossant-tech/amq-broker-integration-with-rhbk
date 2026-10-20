@@ -1,0 +1,112 @@
+---
+# Console web para navegar nos usuarios e grupos do LDAP.
+#
+# OpenLDAP nao tem interface grafica propria - o slapd e so o servidor. O
+# phpLDAPadmin e um cliente web separado, que fala LDAP com o Service do
+# openldap como qualquer outro cliente.
+#
+# ATENCAO - esta e a unica peca da pasta que precisa de SCC elevada:
+# a imagem osixia/phpldapadmin roda o Apache como root e nao sobrevive ao UID
+# aleatorio da restricted-v2. Por isso o ServiceAccount abaixo recebe "anyuid".
+# E uma concessao de laboratorio, limitada a este ServiceAccount e a este
+# namespace; nao vale para o OpenLDAP, que continua na restricted-v2.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: phpldapadmin
+  namespace: ldap
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: phpldapadmin-anyuid
+  namespace: ldap
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+subjects:
+  - kind: ServiceAccount
+    name: phpldapadmin
+    namespace: ldap
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phpldapadmin
+  namespace: ldap
+  labels:
+    app: phpldapadmin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: phpldapadmin
+  template:
+    metadata:
+      labels:
+        app: phpldapadmin
+    spec:
+      serviceAccountName: phpldapadmin
+      containers:
+        - name: phpldapadmin
+          image: docker.io/osixia/phpldapadmin:0.9.0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Sem porta no valor: o phpLDAPadmin assume 389, que e a porta que
+            # o Service do openldap passou a publicar.
+            - name: PHPLDAPADMIN_LDAP_HOSTS
+              value: openldap.ldap.svc.cluster.local
+            # TLS termina no Route (edge), entao o container serve HTTP puro.
+            - name: PHPLDAPADMIN_HTTPS
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: phpldapadmin
+  namespace: ldap
+  labels:
+    app: phpldapadmin
+spec:
+  type: ClusterIP
+  selector:
+    app: phpldapadmin
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: phpldapadmin
+  namespace: ldap
+spec:
+  to:
+    kind: Service
+    name: phpldapadmin
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+

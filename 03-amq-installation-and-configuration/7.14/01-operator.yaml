@@ -1,0 +1,31 @@
+---
+# Operador do AMQ Broker 7.14 via OLM.
+# OperatorHub: "Red Hat Integration - AMQ Broker for RHEL 9 (Multiarch)"
+# Canal 7.14.x (LTS). O OperatorGroup limita o operador a observar apenas o
+# namespace amq-demo (modo "A specific namespace on the cluster").
+#
+# Confirme o pacote e o canal no seu cluster:
+#   oc get packagemanifests -n openshift-marketplace | grep -i amq-broker
+#   oc get packagemanifest amq-broker-rhel9 -n openshift-marketplace \
+#     -o jsonpath='{.status.channels[*].name}{"\n"}'
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: amq-broker-operator-group
+  namespace: amq-demo
+spec:
+  targetNamespaces:
+    - amq-demo
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: amq-broker-rhel9
+  namespace: amq-demo
+spec:
+  channel: 7.14.x
+  name: amq-broker-rhel9
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+

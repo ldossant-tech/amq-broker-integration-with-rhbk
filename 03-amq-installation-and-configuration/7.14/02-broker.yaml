@@ -1,0 +1,94 @@
+apiVersion: broker.amq.io/v1beta1
+kind: ActiveMQArtemis
+metadata:
+  name: ex-aao
+  namespace: amq-demo
+
+spec:
+  deploymentPlan:
+    # Quantidade de brokers e imagem selecionada pelo Operator.
+    size: 1
+    image: placeholder
+    requireLogin: true
+    persistenceEnabled: true
+    journalType: nio
+    messageMigration: true
+
+    # Capacidade do volume persistente de cada broker.
+    storage:
+      size: 2Gi
+
+    # Ajuste CPU e memória conforme a carga do ambiente.
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+
+    # Secrets previamente criados: configuração OIDC, confiança HTTPS
+    # no RHBK e login.config com os domínios activemq e console.
+    extraMounts:
+      secrets:
+        - amq-console-oidc
+        - ex-aao-oidc
+        - console-jaas-config
+
+  # Publica o console por HTTPS. O Secret contém os keystores e suas senhas.
+  console:
+    expose: true
+    sslEnabled: true
+    sslSecret: ex-aao-console-tls
+
+  # Credenciais locais: utilizadas no laboratório e pelo Operator.
+  # Substitua a senha antes de utilizar em outro ambiente.
+  adminUser: admin
+  adminPassword: admin
+
+  # Ativa OIDC no domínio JAAS console, permite as roles indicadas
+  # e configura a confiança HTTPS no RHBK. keycloakEnabled=false
+  # desativa a integração antiga; a integração OIDC permanece ativa.
+  # O builder habilita o RBAC de gerenciamento definido abaixo.
+  env:
+    - name: JAVA_ARGS_APPEND
+      value: >-
+        -Dhawtio.authenticationEnabled=true
+        -Dhawtio.realm=console
+        -Dhawtio.keycloakEnabled=false
+        -Dhawtio.oidcConfig=file:/amq/extra/secrets/amq-console-oidc/hawtio-oidc.properties
+        -Dhawtio.roles=admin,amq-user
+        -Dhawtio.rolePrincipalClasses=org.apache.activemq.artemis.spi.core.security.jaas.RolePrincipal
+        -Dhawtio.userPrincipalClasses=org.apache.activemq.artemis.spi.core.security.jaas.UserPrincipal
+        -Djavax.net.ssl.trustStore=/amq/extra/secrets/ex-aao-oidc/truststore.p12
+        -Djavax.net.ssl.trustStorePassword=changeit
+        -Djavax.net.ssl.trustStoreType=PKCS12
+        -Djavax.management.builder.initial=org.apache.activemq.artemis.core.server.management.ArtemisRbacMBeanServerBuilder
+
+  # Permissões de gerenciamento: admin consulta e altera;
+  # amq-user apenas consulta. Os nomes devem coincidir com as roles
+  # recebidas do RHBK. Não define permissões de produção/consumo.
+  brokerProperties:
+    - 'securityRoles."mops.#".admin.view=true'
+    - 'securityRoles."mops.#".admin.edit=true'
+    - 'securityRoles."mops.#".amq-user.view=true'
+
+  # Substitui a autorização antiga de management.xml pelo RBAC acima.
+  # Se mudar metadata.name, ajuste também ex-aao-container-init.
+  resourceTemplates:
+    - selector:
+        kind: StatefulSet
+      patch:
+        kind: StatefulSet
+        spec:
+          template:
+            spec:
+              initContainers:
+                - name: ex-aao-container-init
+                  args:
+                    - "-c"
+                    - >-
+                      /opt/amq/bin/launch.sh &&
+                      /opt/amq-broker/script/default.sh &&
+                      echo '<management-context xmlns="http://activemq.apache.org/schema" />'
+                      > /amq/init/config/amq-broker/etc/management.xml

@@ -1,0 +1,11 @@
+---
+# Namespace separado de proposito: no cliente o diretorio e um servico externo
+# ao cluster. Manter o LDAP fora dos namespaces rhbk/amq-demo deixa claro o que
+# e dependencia externa e o que e aplicacao.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ldap
+  labels:
+    kubernetes.io/metadata.name: ldap
+

@@ -1,0 +1,13 @@
+---
+# Opcional: fila de teste criada pelo operador no broker.
+apiVersion: broker.amq.io/v1beta1
+kind: ActiveMQArtemisAddress
+metadata:
+  name: test-queue
+  namespace: amq-demo
+spec:
+  addressName: TEST.QUEUE
+  queueName: TEST.QUEUE
+  routingType: anycast
+  removeFromBrokerOnDelete: true
+

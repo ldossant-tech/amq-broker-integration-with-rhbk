@@ -1,0 +1,211 @@
+---
+# OpenLDAP de laboratorio: Secret + LDIF de carga + Deployment + Service.
+#
+# Imagem: docker.io/bitnamilegacy/openldap:2.6.10
+#   A Bitnami tirou as imagens gratuitas de docker.io/bitnami em agosto/2025 e
+#   moveu o catalogo antigo para docker.io/bitnamilegacy. Por isso o repositorio
+#   e "bitnamilegacy" e nao "bitnami" - esta ultima hoje devolve lista de tags
+#   vazia. A imagem roda como UID 1001 mas tem /opt/bitnami e /bitnami com g+rwX,
+#   entao funciona com o UID aleatorio da SCC restricted-v2 do OpenShift.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openldap-admin
+  namespace: ldap
+type: Opaque
+stringData:
+  # DN completo fica cn=admin,dc=example,dc=com
+  LDAP_ADMIN_USERNAME: admin
+  LDAP_ADMIN_PASSWORD: adminpassword   # LAB APENAS
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openldap-seed
+  namespace: ldap
+data:
+  # Este LDIF e a carga inicial. Com LDAP_CUSTOM_LDIF_DIR definido, a imagem
+  # NAO cria a arvore padrao dela e importa isto aqui - por isso o arquivo
+  # precisa criar tambem a entrada raiz dc=example,dc=com.
+  #
+  # Estrutura, espelhando o que se ve em cliente:
+  #   ou=people  -> usuarios
+  #   ou=groups  -> grupos (groupOfNames, com atributo member)
+  #
+  #   amquser   pertence a cn=amq-admins  -> vai receber a role admin
+  #   amqviewer pertence a cn=amq-users   -> NAO recebe role, serve de teste
+  #                                          negativo (tem que ser barrado no
+  #                                          console)
+  seed.ldif: |
+    dn: dc=example,dc=com
+    objectClass: top
+    objectClass: dcObject
+    objectClass: organization
+    o: Example Inc
+    dc: example
+
+    dn: ou=people,dc=example,dc=com
+    objectClass: top
+    objectClass: organizationalUnit
+    ou: people
+
+    dn: ou=groups,dc=example,dc=com
+    objectClass: top
+    objectClass: organizationalUnit
+    ou: groups
+
+    dn: uid=admin,ou=people,dc=example,dc=com
+    objectClass: top
+    objectClass: person
+    objectClass: organizationalPerson
+    objectClass: inetOrgPerson
+    uid: admin
+    cn: Admin
+    givenName: AMQ
+    sn: User
+    mail: amquser@example.com
+    userPassword: amquser123
+
+    dn: uid=amqviewer,ou=people,dc=example,dc=com
+    objectClass: top
+    objectClass: person
+    objectClass: organizationalPerson
+    objectClass: inetOrgPerson
+    uid: amqviewer
+    cn: AMQ Viewer
+    givenName: AMQ
+    sn: Viewer
+    mail: amqviewer@example.com
+    userPassword: amqviewer123
+
+    dn: cn=amq-admins,ou=groups,dc=example,dc=com
+    objectClass: top
+    objectClass: groupOfNames
+    cn: amq-admins
+    description: Acesso administrativo ao AMQ Management Console
+    member: uid=admin,ou=people,dc=example,dc=com
+
+    dn: cn=amq-users,ou=groups,dc=example,dc=com
+    objectClass: top
+    objectClass: groupOfNames
+    cn: amq-users
+    description: Usuarios de mensageria, sem acesso ao console
+    member: uid=amqviewer,ou=people,dc=example,dc=com
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openldap
+  namespace: ldap
+  labels:
+    app: openldap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openldap
+  template:
+    metadata:
+      labels:
+        app: openldap
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: openldap
+          image: docker.io/bitnamilegacy/openldap:2.6.10
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              # Obrigatorio, e nao tem a ver com a porta: slapadd e slappasswd
+              # sao symlinks para o slapd, que carrega cap_net_bind_service com
+              # o bit "e" (effective) no proprio arquivo. Com a capability fora
+              # do bounding set e allowPrivilegeEscalation: false, o kernel nao
+              # consegue conceder o que o arquivo exige e o execve falha com
+              # EPERM -- "slappasswd: Operation not permitted" -- antes mesmo de
+              # qualquer bind. A porta 1389 esta acima de 1024 e nao precisaria
+              # de privilegio nenhum; tirar esta linha quebra o setup do pod.
+              add:
+                - NET_BIND_SERVICE
+              drop:
+                - ALL
+          env:
+            - name: LDAP_ROOT
+              value: dc=example,dc=com
+            - name: LDAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: openldap-admin
+                  key: LDAP_ADMIN_USERNAME
+            - name: LDAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: openldap-admin
+                  key: LDAP_ADMIN_PASSWORD
+            # Com esta variavel a imagem importa os .ldif do diretorio e pula a
+            # criacao da arvore padrao. LDAP_ROOT tem que bater com a raiz do
+            # LDIF, senao a importacao falha com "No such object".
+            - name: LDAP_CUSTOM_LDIF_DIR
+              value: /ldifs
+            - name: LDAP_SKIP_DEFAULT_TREE
+              value: "yes"
+            - name: LDAP_PORT_NUMBER
+              value: "1389"
+            - name: BITNAMI_DEBUG
+              value: "true"
+          ports:
+            - name: ldap
+              containerPort: 1389
+              protocol: TCP
+          volumeMounts:
+            - name: seed
+              mountPath: /ldifs
+            - name: data
+              mountPath: /bitnami/openldap
+          readinessProbe:
+            tcpSocket:
+              port: 1389
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 1389
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: seed
+          configMap:
+            name: openldap-seed
+        # emptyDir de proposito: a cada restart o diretorio sobe limpo e o LDIF
+        # e reimportado. Com PVC, a segunda subida acha o banco populado, ignora
+        # o LDIF, e qualquer mudanca no ConfigMap passa a nao ter efeito.
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openldap
+  namespace: ldap
+  labels:
+    app: openldap
+spec:
+  type: ClusterIP
+  selector:
+    app: openldap
+  ports:
+    - name: ldap
+      port: 1389
+      targetPort: 1389
+      protocol: TCP
+

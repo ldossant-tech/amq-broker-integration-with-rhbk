@@ -1,0 +1,7 @@
+---
+# Projeto onde o operador e o broker serao instalados.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: amq-demo
+
