@@ -4,10 +4,10 @@ Guia de laboratório para integrar o **AMQ Management Console** ao **Red Hat bui
 
 | Componente | Versão / finalidade |
 | --- | --- |
-| AMQ Broker | 7.14; configuração relatada no laboratório com 7.14.1 |
-| RHBK | 26.4; autenticação e emissão de tokens |
+| AMQ Broker | configuração relatada no laboratório na versão 7.14.1 |
+| RHBK | autenticação e emissão de tokens na versão 26.4 |
 | OpenLDAP | Diretório de usuários e grupos do laboratório |
-| OpenShift | 4.20; Execução dos Operators e aplicações |
+| OpenShift | Execução dos Operators e aplicações na versão 4.20 |
 | phpLDAPadmin | Inspeção opcional do diretório |
 
 ## Sumário
